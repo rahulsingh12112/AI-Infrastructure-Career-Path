@@ -378,6 +378,80 @@ Distributed training mein GPUs ko continuously gradients sync karne padte hain. 
 - [ ] Design network topology for GPU cluster
 - [ ] Spot instance strategy for training jobs
 
+---
+
+#### EFA — Supported Libraries, Instances, OS, Limitations & Pricing
+
+**Supported Libraries:**
+| Library | Version | Use Case |
+|---------|---------|----------|
+| Open MPI | 4.1+ | HPC applications |
+| Intel MPI | 2019 Update 5+ | HPC applications |
+| NCCL | 2.4.2+ | ML training (PyTorch, TensorFlow) |
+| NIXL | 1.0.0+ | Disaggregated inference |
+| AWS Neuron SDK | 2.3+ | Trainium/Inferentia chips |
+
+**Supported Instance Types (Key ones — EFA v4, Nitro v6, RDMA read + write):**
+| Category | Example Instances |
+|----------|-----------------|
+| General Purpose | m8a.48xlarge, m8i.96xlarge, m9g.48xlarge |
+| Compute Optimized | c8a.48xlarge, c8i.96xlarge, c9g.48xlarge |
+| Memory Optimized | r8a.48xlarge, r8i.96xlarge, x8i.96xlarge |
+| Storage Optimized | i8ge.48xlarge |
+| Accelerated (GPU) | g7.48xlarge, g7e.48xlarge, p6-b200.48xlarge, p6-b300.48xlarge |
+| HPC | hpc8a.96xlarge |
+
+> Note: Mostly large/metal instances hi EFA support karte hain — chhote sizes mein nahi milta.
+
+**Region-wise check karne ka command:**
+```bash
+aws ec2 describe-instance-types \
+    --region us-east-1 \
+    --filters Name=network-info.efa-supported,Values=true \
+    --query "InstanceTypes[*].[InstanceType]" \
+    --output text | sort
+```
+
+**Supported Operating Systems:**
+| OS | Intel/AMD (x86_64) | Graviton (arm64) |
+|----|-------------------|-----------------|
+| Amazon Linux 2023 | ✅ | ✅ |
+| RHEL 8, 9, 10 | ✅ | ✅ |
+| Debian 11, 12, 13 | ✅ | ✅ |
+| Rocky Linux 8, 9 | ✅ | ✅ |
+| Ubuntu 22.04, 24.04, 26.04 | ✅ | ✅ |
+| SUSE Linux 15 SP2+ | ✅ | ✅ |
+
+**EFA Limitations (Kya NAHI kar sakta):**
+| Limitation | Explanation |
+|-----------|-------------|
+| RDMA write sab instances pe nahi | Kuch purane instances sirf RDMA read support karte hain |
+| P4d/P4de/DL1 ↔ other instances ke beech EFA traffic nahi | Sirf same type ke beech kaam karega |
+| Multiple NIC support | Multiple network cards wale instances mein — ek EFA per card. Baaki instances mein sirf 1 EFA |
+| Same AZ mandatory | EFA traffic sirf same AZ mein — dono nodes same AZ mein hone chahiye |
+| Same VPC mandatory | EFA traffic ek VPC se doosre VPC mein nahi ja sakta |
+| Non-routable | EFA traffic route nahi hota (jaise normal IP packets). Ye direct point-to-point hai |
+| AWS Outposts pe nahi | On-prem Outposts mein supported nahi |
+| Windows pe limited | Windows mein sirf AWS CDI SDK applications ke liye. Baaki ke liye sirf ENA jaisa behave karega |
+| Dedicated Hosts/Instances | c7g.16xl, m7g.16xl, r7g.16xl pe dedicated mein supported nahi |
+
+> Important: EFA traffic = same AZ, same VPC, non-routable. Ye ek "private fast lane" hai — internet ya cross-region ke liye ENA/normal networking use karo.
+
+**EFA Pricing:**
+FREE hai — koi extra cost nahi. Supported instance pe enable karo, koi additional charge nahi lagta. Sirf instance ka cost dete ho.
+
+**Summary — Ek Nazar Mein:**
+```
+EFA = AWS ka high-speed NIC jo OS bypass karke direct GPU-to-GPU communication deta hai
+    → SRD protocol use karta hai (congestion control built-in)
+    → Libfabric ke through NCCL/MPI connect hote hain
+    → Same AZ, same VPC mein kaam karta hai
+    → Free hai, sirf supported instance chahiye
+    → ML training aur HPC ke liye essential
+```
+
+---
+
 ## Resources
 - [AWS GPU instances](https://aws.amazon.com/ec2/instance-types/#Accelerated_Computing)
 - [EFA documentation](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/efa.html)
