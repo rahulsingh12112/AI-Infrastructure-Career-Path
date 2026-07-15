@@ -278,6 +278,78 @@ Inference (LLaMA serving):
 
 ---
 
+#### EFA Device Attach — 2 Tarike
+
+**ENA vs EFA Kya Hai:**
+```
+ENA = Normal sadak (regular road) — IP traffic, internet, VPC, SSH sab yahan se jaata hai
+EFA = Highway/Expressway — sirf heavy GPU traffic ke liye, ultra fast, no OS kernel involvement
+```
+
+**Option 1: EFA with ENA (dono saath mein) — Most Common:**
+```
+┌─────────────────────────┐
+│      EC2 Instance        │
+│                          │
+│  SSH traffic ──→ ENA ──→ Internet/VPC (normal IP networking)
+│  GPU training ──→ EFA ──→ Other GPU nodes (RDMA, fast)
+│                          │
+│  [Same physical NIC, 2 logical devices]
+└─────────────────────────┘
+```
+Kab: Tumhe SSH bhi karna hai, internet bhi chahiye, AUR GPU communication bhi chahiye.
+
+**Option 2: EFA-only (sirf highway, no sadak):**
+```
+┌─────────────────────────┐
+│      EC2 Instance        │
+│                          │
+│  ENA NIC ──→ Internet/VPC (SSH, management)
+│  EFA-only NIC ──→ SIRF GPU traffic (no IP, no internet)
+│                          │
+│  [Alag dedicated NIC sirf ML traffic ke liye]
+└─────────────────────────┘
+```
+Kab: Dedicated NIC chahiye sirf GPU-to-GPU ke liye — IP address nahi chahiye, bas raw speed.
+
+**EFA Ka OS-Bypass:**
+```
+Normal (ENA):  App → System Call → Kernel → TCP/IP → NIC Driver → NIC → Wire
+                        (slow: context switch, packet copy, interrupt)
+
+EFA:           App → Libfabric (user-space) → EFA NIC → Wire
+                        (fast: kernel skip, no copy, no interrupt)
+```
+Jaise FASTag se toll booth pe bina ruke nikalte ho — EFA mein data bina OS ke ruke nikalti hai.
+
+**SRD Protocol (AWS Ka Custom Protocol):**
+- Normal RDMA protocols (InfiniBand, RoCE) AWS ke shared network pe directly nahi chal sakte
+- AWS ne apna banaya: SRD (Scalable Reliable Datagram)
+- Reliable (data loss nahi), congestion control built-in, multi-path (kai raaste ek saath)
+- On-prem mein InfiniBand protocol hai, AWS mein SRD protocol — kaam same, bas cloud ke liye designed
+
+**Comparison Table:**
+| | ENA | EFA (with ENA) | EFA-only |
+|--|-----|---------------|----------|
+| Kya hai | Normal NIC | Normal + Fast NIC | Sirf Fast NIC |
+| IP address | ✅ | ✅ | ❌ |
+| SSH/Internet | ✅ | ✅ | ❌ |
+| RDMA/OS-bypass | ❌ | ✅ | ✅ |
+| Analogy | Regular road | Road + Highway combo | Sirf highway, no exit |
+| Use case | Web apps | GPU training (most common) | Dedicated ML traffic isolation |
+
+**Typical Setup:**
+```
+P4d/P5 instance:
+  Primary NIC: ENA → SSH, management, S3 download, internet
+  Secondary NIC: EFA (with ENA) → GPU-to-GPU training traffic
+```
+
+**Interview Line:**
+> "EFA provides OS-bypass networking using AWS's SRD protocol, giving RDMA-like performance over the shared AWS network. You can attach it alongside ENA for combined IP + high-speed traffic, or use EFA-only for dedicated ML communication without IP overhead."
+
+---
+
 #### Placement Groups
 Cluster placement group mein GPU nodes physically paas mein hote hain — lowest possible network latency milti hai nodes ke beech.
 
