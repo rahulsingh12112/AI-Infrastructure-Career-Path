@@ -358,6 +358,7 @@ P4d/P5 instance:
 **Interview Line:**
 > "EFA provides OS-bypass networking using AWS's SRD protocol, giving RDMA-like performance over the shared AWS network. You can attach it alongside ENA for combined IP + high-speed traffic, or use EFA-only for dedicated ML communication without IP overhead."
 
+### Reference link - https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/efa.html
 ---
 
 #### Placement Groups
