@@ -434,6 +434,259 @@ EFA = AWS ka high-speed NIC jo OS bypass karke direct GPU-to-GPU communication d
 #### Placement Groups
 Cluster placement group mein GPU nodes physically paas mein hote hain — lowest possible network latency milti hai nodes ke beech.
 
+**Kya hai Placement Group?**
+Placement group ek tarika hai jisme tum apne interdependent EC2 instances ko ek group mein launch karte ho taaki unki physical placement ko influence kar sako. Basically AWS ko bol rahe ho: "Mere instances ko physically KAISE arrange karo hardware pe — ye main decide karunga based on meri application ki need."
+
+---
+
+**Real Data Center Mein Kya Hota Hai?**
+
+AWS ka ek **Region** hota hai (e.g., ap-south-1 = Mumbai). Uske andar multiple **Availability Zones** hoti hain (ap-south-1a, ap-south-1b, etc.). Har AZ = ek ya zyada physical data centers.
+
+```
+Data Center
+├── Row 1
+│   ├── Rack 1 (apna power supply, network switch)
+│   │   ├── Server 1
+│   │   ├── Server 2
+│   │   └── Server 3
+│   ├── Rack 2
+│   │   ├── Server 4
+│   │   ├── Server 5
+│   │   └── Server 6
+│   └── ...
+├── Row 2
+│   ├── Rack 3
+│   ├── Rack 4
+│   └── ...
+└── ...
+```
+
+**Rack** = ek physical cabinet jisme multiple servers hote hain. Har rack ka apna:
+- Power supply (UPS)
+- Top-of-Rack (ToR) network switch
+- Cooling
+
+**Agar ek rack fail hua** (power gone, switch dead) → us rack ke **saare servers** down.
+
+---
+
+**4 Placement Strategies:**
+
+**1. CLUSTER — "Sab ek saath chipka do"**
+
+Jaise ek table pe saare laptops ek doosre ke bilkul paas rakh do.
+
+```
+Availability Zone: ap-south-1a
+└── Data Center X
+    └── Row 1
+        └── Rack 1 (same ToR switch)
+            ├── Instance A  ← Cluster group
+            ├── Instance B  ← Cluster group
+            ├── Instance C  ← Cluster group
+            └── Instance D  ← Cluster group
+```
+
+- Saare instances **same rack ya adjacent racks** mein hote hain
+- Same Top-of-Rack switch se connected → **~10 Gbps+ bandwidth, <1ms latency**
+- Ek hi spine switch ke neeche → minimal network hops
+- **Fayda:** Sab ek doosre se bohot fast baat kar sakte hain (low latency)
+- **Use case:** HPC, tightly-coupled GPU training, MPI jobs
+- **Risk:** Rack fail = **saare instances gone**. Availability sacrifice for performance.
+
+```bash
+# MPI-based HPC job — nodes ko aapas mein nanosecond-level mein baat karni hai
+aws ec2 create-placement-group \
+    --group-name hpc-cluster \
+    --strategy cluster
+
+# Launch with Enhanced Networking (ENA) + EFA
+aws ec2 run-instances \
+    --instance-type c5n.18xlarge \
+    --placement "GroupName=hpc-cluster" \
+    --network-interfaces "InterfaceType=efa" \
+    --count 8
+```
+
+---
+
+**2. PARTITION — "Group banao, lekin groups ko alag hardware do"**
+
+Jaise ek class mein 4 groups bana do aur har group ko alag room mein bitha do. Ek room ka AC kharab ho toh baaki groups safe.
+
+```
+Availability Zone: ap-south-1a
+└── Data Center X
+    ├── Rack 1 (Partition 1)
+    │   ├── Instance A
+    │   ├── Instance B
+    │   └── Instance C
+    ├── Rack 3 (Partition 2)    ← different hardware
+    │   ├── Instance D
+    │   ├── Instance E
+    │   └── Instance F
+    └── Rack 7 (Partition 3)    ← different hardware
+        ├── Instance G
+        ├── Instance H
+        └── Instance I
+```
+
+- Har partition ko **alag set of racks** milta hai
+- Partition 1 aur Partition 2 kabhi same rack share nahi karenge
+- **Max 7 partitions per AZ**
+- Har partition mein multiple instances ho sakte hain (koi limit nahi)
+- **Use case:** Hadoop, Kafka, Cassandra — jahan data replicated hota hai aur failure isolate chahiye
+
+```bash
+# Kafka cluster — brokers ko partition-aware deploy karo
+aws ec2 create-placement-group \
+    --group-name kafka-partitioned \
+    --strategy partition \
+    --partition-count 3
+
+# Launch Kafka Broker 1 in Partition 1
+aws ec2 run-instances \
+    --instance-type r5.2xlarge \
+    --placement "GroupName=kafka-partitioned,PartitionNumber=1" \
+    --count 3
+
+# Launch Kafka Broker 2 in Partition 2
+aws ec2 run-instances \
+    --instance-type r5.2xlarge \
+    --placement "GroupName=kafka-partitioned,PartitionNumber=2" \
+    --count 3
+```
+
+---
+
+**3. SPREAD — "Har ek ko alag rack/hardware do"**
+
+Jaise har student ko alag bench pe bitha do — ek bench toote toh baaki sab safe.
+
+```
+Availability Zone: ap-south-1a
+└── Data Center X
+    ├── Rack 1
+    │   └── Instance A    ← spread group
+    ├── Rack 4
+    │   └── Instance B    ← spread group
+    ├── Rack 9
+    │   └── Instance C    ← spread group
+    └── ...
+
+Availability Zone: ap-south-1b
+└── Data Center Y
+    ├── Rack 2
+    │   └── Instance D    ← spread group
+    └── Rack 6
+        └── Instance E    ← spread group
+```
+
+- **Har instance guaranteed alag rack** pe hoga
+- Limit: **max 7 instances per AZ** (kyunki guaranteed isolation deni hoti hai)
+- Multi-AZ spread ho sakta hai
+- **Use case:** ZooKeeper ensemble, etcd cluster, critical control plane nodes
+
+```bash
+# ZooKeeper ensemble — 5 nodes, har ek alag hardware pe
+aws ec2 create-placement-group \
+    --group-name zk-spread \
+    --strategy spread
+
+aws ec2 run-instances \
+    --instance-type m5.xlarge \
+    --placement "GroupName=zk-spread" \
+    --count 5
+```
+
+**Risk:** Performance sacrifice — instances door hain toh latency thodi zyada. But **maximum fault isolation**.
+
+---
+
+**4. PRECISION TIME — "Exact time chahiye"**
+
+Jaise ek special ghari wali seat pe bitha do jahan atomic clock lagti hai.
+
+```
+Availability Zone: ap-south-1a
+└── Data Center X
+    └── Special Rack (with PTP-capable hardware)
+        ├── Instance A    ← precision time group
+        └── Instance B    ← precision time group
+```
+
+- AWS ke specific servers mein **PTP (Precision Time Protocol) hardware** laga hota hai
+- Ye servers directly **atomic clock / GPS-synchronized time source** se connected hain
+- Normal instances ko NTP milta hai (~millisecond accuracy)
+- Precision time instances ko **microsecond-level accuracy** milti hai
+- **Use case:** Financial trading systems, time-sensitive distributed databases
+
+```bash
+aws ec2 create-placement-group \
+    --group-name trading-time \
+    --strategy precision-time
+
+aws ec2 run-instances \
+    --instance-type c5.xlarge \
+    --placement "GroupName=trading-time" \
+    --count 2
+```
+
+---
+
+**Comparison Table — Data Center Perspective:**
+
+| Strategy | Hardware Placement | Failure Blast Radius | Network Latency | Limit |
+|----------|-------------------|---------------------|-----------------|-------|
+| Cluster | Same rack / adjacent racks | HIGH (ek rack = sab gone) | Lowest (~μs) | No instance limit |
+| Partition | Different rack sets per partition | MEDIUM (ek partition affected) | Medium | 7 partitions/AZ |
+| Spread | Each instance on different rack | LOWEST (sirf 1 instance affected) | Higher | 7 instances/AZ |
+| Precision Time | PTP-capable hardware racks | Depends | Normal | Hardware availability |
+
+---
+
+**Network Topology Context:**
+
+```
+Internet
+  │
+  ▼
+AWS Backbone
+  │
+  ▼
+Region (ap-south-1)
+  ├── AZ-a ──── Data Center(s)
+  │               ├── Spine Switch
+  │               │   ├── ToR Switch (Rack 1) ← Cluster instances yahan
+  │               │   ├── ToR Switch (Rack 2)
+  │               │   └── ToR Switch (Rack 3)
+  │               └── ...
+  ├── AZ-b ──── Data Center(s)
+  └── AZ-c ──── Data Center(s)
+```
+
+- **Cluster:** Same ToR switch ke neeche = minimum hops = fastest
+- **Spread:** Different ToR switches = zyada hops = thoda slow but isolated
+- **Partition:** Beech ka — groups isolated, within group fast
+
+---
+
+**Pricing:**
+**FREE** — placement group banana ka koi charge nahi.
+
+**Rules & Limitations:**
+1. Ek instance sirf ek placement group mein ho sakta hai — multiple placement groups mein nahi
+2. Placement groups merge nahi ho sakte
+3. On-Demand Capacity Reservations aur zonal Reserved Instances — agar instance attributes match karte hain toh reserved capacity automatically use hoti hai, chahe instance placement group mein ho ya nahi
+4. Dedicated Hosts ko placement groups mein launch nahi kar sakte
+5. Spot Instance jo stop ya hibernate on interruption ke liye configured hai, usse placement group mein launch nahi kar sakte
+
+**Interview Line:**
+> "Placement groups let you control the physical placement of EC2 instances on underlying hardware. Cluster strategy gives lowest latency by co-locating on same rack (ideal for EFA + NCCL GPU training), Partition isolates failure domains for distributed systems like Kafka/HDFS, and Spread maximizes fault isolation by placing each instance on separate hardware."
+
+### Reference link - https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/placement-groups.html
+
 #### NVLink / NVSwitch
 Intra-node (same machine ke andar) GPU-to-GPU communication — PCIe se 5-10x faster bandwidth. Jaise P4d mein 8 GPUs NVSwitch se connected hain.
 
