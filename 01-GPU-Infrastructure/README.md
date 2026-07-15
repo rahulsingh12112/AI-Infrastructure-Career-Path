@@ -358,28 +358,6 @@ P4d/P5 instance:
 **Interview Line:**
 > "EFA provides OS-bypass networking using AWS's SRD protocol, giving RDMA-like performance over the shared AWS network. You can attach it alongside ENA for combined IP + high-speed traffic, or use EFA-only for dedicated ML communication without IP overhead."
 
-### Reference link - https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/efa.html
----
-
-#### Placement Groups
-Cluster placement group mein GPU nodes physically paas mein hote hain — lowest possible network latency milti hai nodes ke beech.
-
-#### NVLink / NVSwitch
-Intra-node (same machine ke andar) GPU-to-GPU communication — PCIe se 5-10x faster bandwidth. Jaise P4d mein 8 GPUs NVSwitch se connected hain.
-
-#### Why This Matters for Multi-Node ML Training
-Distributed training mein GPUs ko continuously gradients sync karne padte hain. Agar network slow hai toh GPUs idle baithe rehte hain. EFA + RDMA + NCCL milke ye ensure karte hain ki network bottleneck na bane aur GPUs maximum utilized rahein.
-
-### Hands-on Tasks
-- [ ] Launch P4d instance and run GPU benchmark
-- [ ] Configure EFA for distributed training
-- [ ] Set up multi-node training with NCCL
-- [ ] Compare cost: Inferentia vs GPU for inference
-- [ ] Design network topology for GPU cluster
-- [ ] Spot instance strategy for training jobs
-
----
-
 #### EFA — Supported Libraries, Instances, OS, Limitations & Pricing
 
 **Supported Libraries:**
@@ -449,6 +427,26 @@ EFA = AWS ka high-speed NIC jo OS bypass karke direct GPU-to-GPU communication d
     → Free hai, sirf supported instance chahiye
     → ML training aur HPC ke liye essential
 ```
+
+### Reference link - https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/efa.html
+---
+
+#### Placement Groups
+Cluster placement group mein GPU nodes physically paas mein hote hain — lowest possible network latency milti hai nodes ke beech.
+
+#### NVLink / NVSwitch
+Intra-node (same machine ke andar) GPU-to-GPU communication — PCIe se 5-10x faster bandwidth. Jaise P4d mein 8 GPUs NVSwitch se connected hain.
+
+#### Why This Matters for Multi-Node ML Training
+Distributed training mein GPUs ko continuously gradients sync karne padte hain. Agar network slow hai toh GPUs idle baithe rehte hain. EFA + RDMA + NCCL milke ye ensure karte hain ki network bottleneck na bane aur GPUs maximum utilized rahein.
+
+### Hands-on Tasks
+- [ ] Launch P4d instance and run GPU benchmark
+- [ ] Configure EFA for distributed training
+- [ ] Set up multi-node training with NCCL
+- [ ] Compare cost: Inferentia vs GPU for inference
+- [ ] Design network topology for GPU cluster
+- [ ] Spot instance strategy for training jobs
 
 ---
 
