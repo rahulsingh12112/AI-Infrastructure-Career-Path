@@ -322,6 +322,16 @@ EFA:           App → Libfabric (user-space) → EFA NIC → Wire
 ```
 Jaise FASTag se toll booth pe bina ruke nikalte ho — EFA mein data bina OS ke ruke nikalti hai.
 
+ENA with EFA = 1 ENI (ek hi NIC pe dono kaam — IP traffic bhi, RDMA bhi), EFA-only = 2 ENI (ek ENA wali normal ke liye, ek alag EFA-only dedicated sirf GPU traffic ke liye).
+
+EFA-only NIC pe IP address nahi hota — wo sirf raw RDMA/SRD traffic ke liye hai, koi IP networking nahi (no SSH, no internet, no VPC routing). ENA wali ENI pe IP rehta hai — management, 
+SSH, internet sab usi se hota hai.
+
+SRD ek AWS-proprietary transport protocol hai jo EFA NIC ke through EC2 instances ke GPUs ke beech ultra-fast RDMA-like communication karta hai — ye InfiniBand/RoCE ka cloud replacement 
+hai, unke beech communicate nahi karwata.
+
+correct — NCCL/MPI/NIX (ML frameworks) → Libfabric (common API) → SRD (transport protocol) → EFA NIC (hardware) — upar se neeche yahi flow hai.
+
 **SRD Protocol (AWS Ka Custom Protocol):**
 - Normal RDMA protocols (InfiniBand, RoCE) AWS ke shared network pe directly nahi chal sakte
 - AWS ne apna banaya: SRD (Scalable Reliable Datagram)
