@@ -179,6 +179,70 @@ Application code SAME rehta hai!
 **Interview Line:**
 > "Libfabric is an abstraction layer that decouples communication libraries like NCCL from the underlying network hardware. AWS wrote an EFA provider for Libfabric, which means any application already using Libfabric — NCCL, MPI, NIXL — automatically works over EFA without code changes. It converts an M×N integration problem into M+N."
 
+---
+
+#### NCCL / MPI / NIXL — Communication Libraries (Deep Dive)
+
+**Ye teen libraries Libfabric ke upar baithi hain aur actual communication patterns handle karti hain.**
+
+**NCCL (NVIDIA Collective Communications Library):**
+- Multiple GPUs ke beech data share karta hai — training mein gradients sync karna
+- GPU-to-GPU communication (same machine + across machines dono)
+- Example: 4 EC2 × 8 GPU = 32 GPUs, sab NCCL se sync karte hain
+- Same EC2 ke andar → NVLink/NVSwitch se baat
+- EC2-to-EC2 → EFA (via Libfabric) se baat
+- Kaun use karta hai: PyTorch, TensorFlow, DeepSpeed, Megatron
+
+**NCCL Operations:**
+| Operation | Kya karta hai | Analogy |
+|-----------|--------------|---------|
+| AllReduce | Sabka sum/avg lo, sabko de do | Group mein sabne marks bataye, sabko average mila |
+| Broadcast | Ek GPU se sabko same data bhejo | Teacher ne sabko ek hi paper diya |
+| AllGather | Sabne apna data diya, sabko sab ka mila | WhatsApp group mein sabne photo daali, sabko sab ki mili |
+| ReduceScatter | Sum lo aur todke baant do | Bill split karna |
+
+**MPI (Message Passing Interface):**
+- Wahi kaam jo NCCL karta hai, but CPUs ke liye — same machine ke CPUs aur alag machines ke CPUs ke beech data share karna
+- Traditional HPC ka standard (weather models, physics simulations)
+- CPU-focused, purani duniya
+
+**NIXL (NVIDIA Inference Xfer Library):**
+- Jab ek bada model ek machine mein fit nahi hota aur inference ke time ek machine ka output dusri machine ko bhejna hota hai — woh fast transfer NIXL karta hai
+- Training nahi, sirf inference ke liye
+- NCCL training pattern (AllReduce — sab sync karo) ke liye optimized hai, NIXL inference pattern (pipeline — ek ka output next ko, low latency) ke liye
+
+**Important:** Ek time pe ek hi use hoga — training kar rahe ho toh NCCL, inference kar rahe ho toh NIXL. Dono saath mein nahi chalte.
+
+**GPU Instance Mein Kitne GPUs?**
+- Depend karta hai instance type pe — 1 GPU (G4dn.xlarge) se lekar 8 GPUs (P4d, P5) tak ek single EC2 mein
+- 8 GPU samjho jaise ek server mein 8 CPU sockets — bas GPU parallel compute karte hain
+
+**Complete Flow:**
+```
+ML Training (PyTorch):
+  model.backward()      ← Gradient calculate hua
+  NCCL.all_reduce()     ← Sab GPUs ne gradient share kiya
+  Libfabric             ← Network abstraction
+  EFA/InfiniBand        ← Actual wire pe data gaya
+
+HPC Job (Weather Simulation):
+  calculate_zone()      ← Apna zone compute kiya
+  MPI_Send/Recv()       ← Boundary data share kiya
+  Libfabric             ← Network abstraction
+  EFA/InfiniBand        ← Actual wire pe data gaya
+
+Inference (LLaMA serving):
+  forward_pass()        ← Apne layers process kiye
+  NIXL.transfer()       ← Next machine ko output bheja
+  Libfabric             ← Network abstraction
+  EFA/InfiniBand        ← Actual wire pe data gaya
+```
+
+**Interview Line:**
+> "NCCL handles GPU collective communication for training workloads, MPI is the traditional standard for distributed HPC computing, and NIXL is NVIDIA's newer library optimized for inference data transfers. All three sit on top of Libfabric which abstracts the underlying network hardware."
+
+---
+
 #### Placement Groups
 Cluster placement group mein GPU nodes physically paas mein hote hain — lowest possible network latency milti hai nodes ke beech.
 
